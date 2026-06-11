@@ -70,16 +70,41 @@
 
     const BARE = document.body.classList.contains('bare');
 
-    // Always auto-play. In bare/kiosk mode never show a button: if autoplay-with-sound
-    // is blocked, fall back to muted autoplay (always permitted) so video shows regardless.
+    // If we want sound but the element is muted, keep trying to restore audio for a few seconds.
+    let unmuteTimer = null;
+    function scheduleUnmute() {
+      let n = 0;
+      clearInterval(unmuteTimer);
+      unmuteTimer = setInterval(() => {
+        if (!audioEnabled || !video.muted) { clearInterval(unmuteTimer); return; }
+        video.muted = false;
+        video.play().catch(() => {});
+        if (++n > 8) clearInterval(unmuteTimer);
+      }, 1200);
+    }
+
+    // Always auto-play, WITH sound when audio is enabled. Only fall back to muted as a last
+    // resort (and then keep trying to un-mute), so the app plays audio reliably.
     function tryPlay() {
-      video.play().catch(() => {
+      video.muted = !audioEnabled;
+      video.play().then(() => {
+        if (audioEnabled && video.muted) { video.muted = false; video.play().catch(() => {}); }
+      }).catch((err) => {
         if (BARE) {
-          video.muted = true;
-          video.play().catch(() => setTimeout(tryPlay, 800));
+          if (err && err.name === 'NotAllowedError') {
+            // Autoplay-with-sound blocked: show video muted, then keep trying to restore audio.
+            video.muted = true;
+            video.play().catch(() => setTimeout(tryPlay, 800));
+            if (audioEnabled) scheduleUnmute();
+          } else {
+            // Transient error (e.g. load interrupted) — retry WITH sound, don't mute.
+            setTimeout(tryPlay, 600);
+          }
         } else {
           showOverlay('<div class="tapToPlay">▶ Tap to play</div>');
-          overlay.querySelector('.tapToPlay').onclick = () => video.play().then(() => showOverlay(null));
+          overlay.querySelector('.tapToPlay').onclick = () => {
+            video.muted = !audioEnabled; video.play().then(() => showOverlay(null));
+          };
         }
       });
     }
@@ -146,7 +171,7 @@
           showOverlay('Buffering ' + Math.min(100, Math.round(ahead / goal * 100)) + '%' + (name ? ' · ' + name : ''));
           if (enough) {
             started = true; showOverlay(null);
-            video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+            tryPlay(); // robust play: keeps sound on when audio is enabled
           }
         }
       };
@@ -228,7 +253,7 @@
             // Dashboard toggled audio for this output device (applies to live and file modes).
             audioEnabled = msg.enabled;
             video.muted = !msg.enabled;
-            if (msg.enabled) { try { video.volume = 1; await video.play(); } catch {} }
+            if (msg.enabled) { try { video.volume = 1; await video.play(); } catch {} scheduleUnmute(); }
             break;
         }
       };

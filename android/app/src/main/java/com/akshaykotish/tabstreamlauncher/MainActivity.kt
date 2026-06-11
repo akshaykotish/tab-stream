@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -54,6 +55,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // Route media audio to the music stream so volume buttons control it and it isn't silent.
+        volumeControlStream = AudioManager.STREAM_MUSIC
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
 
