@@ -191,6 +191,7 @@ Tuned to keep the viewer essentially frame-synced with the source on a LAN (~50�
 - **Android TV ready** — Leanback launcher + banner, no touchscreen required, remote-friendly.
 - **Auto-start on boot** — via Home-app mode (recommended) or the boot receiver.
 - **HD** — selectable 720p / 1080p / 1440p / 4K with high bitrate so text stays crisp.
+- **Audio** — share tab audio, plus a dashboard **🔊 Audio on viewers** checkbox that live‑mutes/unmutes every viewer's output device.
 - **One broadcaster → many viewers**, plus independent channels via `?room=NAME`.
 - **Kiosk launcher** — fullscreen, auto‑play, keep‑awake, no on‑screen controls, swallows Back.
 - **Zero install for viewers** — any browser on the LAN just opens a URL.

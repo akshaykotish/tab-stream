@@ -145,6 +145,11 @@
           case 'ice':
             if (pc && msg.candidate) { try { await pc.addIceCandidate(msg.candidate); } catch {} }
             break;
+          case 'audio':
+            // Dashboard toggled audio for this output device.
+            video.muted = !msg.enabled;
+            if (msg.enabled) { try { video.volume = 1; await video.play(); } catch {} }
+            break;
         }
       };
       ws.onclose = () => { setStatus('reconnecting…'); setTimeout(connect, 1000); };

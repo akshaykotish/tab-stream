@@ -114,6 +114,15 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      // Broadcaster toggles audio on all viewers' output devices.
+      case 'audio': {
+        const room = getRoom(roomId);
+        for (const viewer of room.viewers.values()) {
+          send(viewer, { type: 'audio', enabled: msg.enabled });
+        }
+        break;
+      }
+
       // ICE candidates relayed in both directions
       case 'ice': {
         const room = getRoom(roomId);

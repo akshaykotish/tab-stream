@@ -81,6 +81,7 @@
         </select>
       </label>
       <label class="audio"><input type="checkbox" id="audio" checked /> Share tab audio</label>
+      <label class="audio"><input type="checkbox" id="viewerAudio" checked /> 🔊 Audio on viewers</label>
     </div>
 
     <div class="links">
@@ -98,6 +99,7 @@
       start: document.getElementById('start'),
       stop: document.getElementById('stop'),
       audio: document.getElementById('audio'),
+      viewerAudio: document.getElementById('viewerAudio'),
       quality: document.getElementById('quality'),
       fps: document.getElementById('fps'),
       preview: document.getElementById('preview'),
@@ -121,9 +123,18 @@
     const BITRATE = { '720': 5_000_000, '1080': 10_000_000, '1440': 18_000_000, '2160': 35_000_000, 'source': 25_000_000 };
 
     let ws, localStream;
+    let audioOn = true; // whether viewers' output devices should play audio
     const peers = new Map(); // viewerId -> RTCPeerConnection
 
     function targetBitrate() { return BITRATE[els.quality.value] || 10_000_000; }
+
+    // Live toggle: mute/unmute audio on every viewer (incl. the Android app).
+    els.viewerAudio.onchange = () => {
+      audioOn = els.viewerAudio.checked;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'audio', enabled: audioOn, room: ROOM }));
+      }
+    };
 
     function setStatus(text, live) {
       els.status.textContent = text;
@@ -192,6 +203,8 @@
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, viewerId, room: ROOM }));
+      // Make sure the new viewer matches the current audio toggle.
+      ws.send(JSON.stringify({ type: 'audio', enabled: audioOn, room: ROOM }));
     }
 
     els.start.onclick = async () => {
