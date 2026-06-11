@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tab-stream · Broadcast</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0b0e14; color: #e6e9ef;
+    }
+    header {
+      padding: 16px 20px; border-bottom: 1px solid #1c2230;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #1c2230; color: #9aa3b2; }
+    .pill.live { background: #2a1316; color: #ff6b6b; }
+    .pill.live::before { content: "●"; margin-right: 5px; color: #ff3b3b; }
+    main { padding: 20px; max-width: 980px; margin: 0 auto; }
+    .stage {
+      position: relative; aspect-ratio: 16/9; background: #05070b;
+      border: 1px solid #1c2230; border-radius: 12px; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .placeholder { color: #5b6477; font-size: 14px; text-align: center; padding: 24px; }
+    .controls { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+    button {
+      font: inherit; font-size: 14px; padding: 10px 16px; border-radius: 9px;
+      border: 1px solid #2a3242; background: #151b27; color: #e6e9ef; cursor: pointer;
+    }
+    button.primary { background: #2f6bff; border-color: #2f6bff; color: #fff; }
+    button.danger { background: #3a1418; border-color: #5a1f25; color: #ff8585; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    label.audio { display: inline-flex; align-items: center; gap: 7px; color: #9aa3b2; font-size: 13px; }
+    .links {
+      margin-top: 22px; padding: 16px; border: 1px solid #1c2230; border-radius: 12px; background: #0e1320;
+    }
+    .links h2 { font-size: 13px; margin: 0 0 10px; color: #9aa3b2; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    .links a { color: #7aa2ff; word-break: break-all; }
+    .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+    .row code { background: #1c2230; padding: 3px 8px; border-radius: 6px; font-size: 13px; }
+    .muted { color: #5b6477; font-size: 12px; }
+    .stat { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>tab-stream</h1>
+    <span id="status" class="pill">idle</span>
+    <span class="pill stat">👁 <span id="viewers">0</span> watching</span>
+  </header>
+
+  <main>
+    <div class="stage">
+      <video id="preview" autoplay muted playsinline></video>
+      <div id="placeholder" class="placeholder">
+        Click <b>Start sharing</b> and choose a browser tab, window, or your whole screen.
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="start" class="primary">Start sharing</button>
+      <button id="stop" class="danger" disabled>Stop</button>
+      <label class="audio">Quality
+        <select id="quality">
+          <option value="720">720p</option>
+          <option value="1080" selected>1080p HD</option>
+          <option value="1440">1440p</option>
+          <option value="2160">4K</option>
+          <option value="source">Source (no limit)</option>
+        </select>
+      </label>
+      <label class="audio">FPS
+        <select id="fps">
+          <option value="30" selected>30</option>
+          <option value="60">60</option>
+        </select>
+      </label>
+      <label class="audio"><input type="checkbox" id="audio" checked /> Share tab audio</label>
+    </div>
+
+    <div class="links">
+      <h2>Viewer link — open on any device on this network</h2>
+      <div class="row">
+        <code id="viewUrl">…</code>
+        <button id="copy">Copy</button>
+      </div>
+      <p class="muted">Anyone on the same Wi‑Fi/LAN can watch by opening that URL. No install needed.</p>
+    </div>
+  </main>
+
+  <script>
+    const els = {
+      start: document.getElementById('start'),
+      stop: document.getElementById('stop'),
+      audio: document.getElementById('audio'),
+      quality: document.getElementById('quality'),
+      fps: document.getElementById('fps'),
+      preview: document.getElementById('preview'),
+      placeholder: document.getElementById('placeholder'),
+      status: document.getElementById('status'),
+      viewers: document.getElementById('viewers'),
+      viewUrl: document.getElementById('viewUrl'),
+      copy: document.getElementById('copy'),
+    };
+
+    const ROOM = new URLSearchParams(location.search).get('room') || 'main';
+    const viewLink = `${location.origin}/view.html` + (ROOM !== 'main' ? `?room=${encodeURIComponent(ROOM)}` : '');
+    els.viewUrl.textContent = viewLink;
+    els.copy.onclick = () => navigator.clipboard.writeText(viewLink).then(() => {
+      els.copy.textContent = 'Copied'; setTimeout(() => els.copy.textContent = 'Copy', 1200);
+    });
+
+    const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    // Target bitrate (bits/sec) per quality tier — high enough to keep text crisp.
+    const BITRATE = { '720': 5_000_000, '1080': 10_000_000, '1440': 18_000_000, '2160': 35_000_000, 'source': 25_000_000 };
+
+    let ws, localStream;
+    const peers = new Map(); // viewerId -> RTCPeerConnection
+
+    function targetBitrate() { return BITRATE[els.quality.value] || 10_000_000; }
+
+    function setStatus(text, live) {
+      els.status.textContent = text;
+      els.status.className = 'pill' + (live ? ' live' : '');
+    }
+
+    function connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}`);
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'broadcaster', room: ROOM }));
+      ws.onmessage = async (e) => {
+        const msg = JSON.parse(e.data);
+        switch (msg.type) {
+          case 'viewer-join': await makeOffer(msg.viewerId); break;
+          case 'answer': {
+            const pc = peers.get(msg.viewerId);
+            if (pc) await pc.setRemoteDescription(msg.sdp);
+            break;
+          }
+          case 'ice': {
+            const pc = peers.get(msg.viewerId);
+            if (pc && msg.candidate) { try { await pc.addIceCandidate(msg.candidate); } catch {} }
+            break;
+          }
+          case 'viewer-leave': {
+            const pc = peers.get(msg.viewerId);
+            if (pc) pc.close();
+            peers.delete(msg.viewerId);
+            break;
+          }
+          case 'viewers': els.viewers.textContent = msg.count; break;
+          case 'replaced': setStatus('replaced by another broadcaster'); break;
+        }
+      };
+      ws.onclose = () => { if (localStream) setTimeout(connectWS, 1000); };
+    }
+
+    async function makeOffer(viewerId) {
+      if (!localStream) return;
+      const pc = new RTCPeerConnection(ICE);
+      peers.set(viewerId, pc);
+      localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+      // Raise the encoder bitrate so HD text/video stays sharp (WebRTC defaults are low).
+      const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if (videoSender) {
+        const params = videoSender.getParameters();
+        if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+        params.encodings[0].maxBitrate = targetBitrate();
+        params.degradationPreference = 'maintain-resolution'; // drop FPS before sharpness
+        try { await videoSender.setParameters(params); } catch {}
+      }
+
+      pc.onicecandidate = (e) => {
+        if (!e.candidate) return;
+        if (e.candidate.protocol === 'tcp') return; // UDP only — lowest latency, never fall back to TCP
+        ws.send(JSON.stringify({ type: 'ice', candidate: e.candidate, viewerId, room: ROOM }));
+      };
+      pc.onconnectionstatechange = () => {
+        if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+          pc.close(); peers.delete(viewerId);
+        }
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, viewerId, room: ROOM }));
+    }
+
+    els.start.onclick = async () => {
+      try {
+        const heights = { '720': 720, '1080': 1080, '1440': 1440, '2160': 2160 };
+        const fps = parseInt(els.fps.value, 10);
+        const videoConstraints = { frameRate: { ideal: fps, max: fps } };
+        if (els.quality.value !== 'source') {
+          const h = heights[els.quality.value];
+          videoConstraints.height = { ideal: h };
+          videoConstraints.width = { ideal: Math.round(h * 16 / 9) };
+        }
+        localStream = await navigator.mediaDevices.getDisplayMedia({
+          video: videoConstraints,
+          audio: els.audio.checked ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
+        });
+        // Hint the encoder: a tab/screen is mostly fine text -> prioritize detail over motion smoothness.
+        const vt = localStream.getVideoTracks()[0];
+        if (vt) vt.contentHint = 'detail';
+      } catch (err) {
+        if (err.name !== 'NotAllowedError') alert('Could not start capture: ' + err.message);
+        return;
+      }
+      els.preview.srcObject = localStream;
+      els.placeholder.style.display = 'none';
+      els.start.disabled = true; els.stop.disabled = false;
+      setStatus('LIVE', true);
+
+      // If the user clicks the browser's native "Stop sharing", clean up.
+      localStream.getVideoTracks()[0].addEventListener('ended', stopSharing);
+
+      connectWS();
+    };
+
+    // Changing quality while live updates bitrate immediately (resolution change needs a restart).
+    els.quality.onchange = async () => {
+      for (const pc of peers.values()) {
+        const s = pc.getSenders().find(x => x.track && x.track.kind === 'video');
+        if (!s) continue;
+        const params = s.getParameters();
+        if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+        params.encodings[0].maxBitrate = targetBitrate();
+        try { await s.setParameters(params); } catch {}
+      }
+    };
+
+    els.stop.onclick = stopSharing;
+
+    function stopSharing() {
+      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+      for (const pc of peers.values()) pc.close();
+      peers.clear();
+      if (ws) ws.close();
+      els.preview.srcObject = null;
+      els.placeholder.style.display = '';
+      els.start.disabled = false; els.stop.disabled = true;
+      els.viewers.textContent = '0';
+      setStatus('idle');
+    }
+  </script>
+</body>
+</html>

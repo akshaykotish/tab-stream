@@ -1,0 +1,19 @@
+# Node
+server/node_modules/
+*.log
+npm-debug.log*
+
+# TLS — generate locally with server/make-certs.sh, never commit private keys
+server/certs/
+
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.iml
+
+# OS
+.DS_Store

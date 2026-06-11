@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tab-stream · Watch</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: #000; color: #e6e9ef;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { height: 100%; display: flex; flex-direction: column; }
+    .bar { padding: 8px 14px; display: flex; align-items: center; gap: 10px;
+      background: #0b0e14; border-bottom: 1px solid #1c2230; }
+    .bar h1 { font-size: 14px; margin: 0; font-weight: 600; }
+    .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #1c2230; color: #9aa3b2; }
+    .pill.live { background: #2a1316; color: #ff6b6b; }
+    .pill.live::before { content: "●"; margin-right: 5px; color: #ff3b3b; }
+    .spacer { flex: 1; }
+    /* Bare mode (used by the Android launcher): stream only, zero chrome. */
+    body.bare .bar { display: none; }
+    body.bare .overlay { background: #000; }
+    button { font: inherit; font-size: 13px; padding: 7px 13px; border-radius: 8px;
+      border: 1px solid #2a3242; background: #151b27; color: #e6e9ef; cursor: pointer; }
+    .stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; }
+    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      text-align: center; color: #7b8494; font-size: 15px; padding: 24px; pointer-events: none; }
+    .overlay.hidden { display: none; }
+    .tapToPlay { pointer-events: auto; cursor: pointer; background: #151b27cc;
+      border: 1px solid #2a3242; padding: 14px 22px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <h1>tab-stream</h1>
+      <span id="status" class="pill">connecting…</span>
+      <div class="spacer"></div>
+      <button id="fs">Fullscreen</button>
+    </div>
+    <div class="stage">
+      <video id="video" autoplay playsinline></video>
+      <div id="overlay" class="overlay">Waiting for the broadcaster to go live…</div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const ROOM = params.get('room') || 'main';
+    if (params.has('bare')) document.body.classList.add('bare'); // launcher: stream only
+    const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const statusEl = document.getElementById('status');
+    document.getElementById('fs').onclick = () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.querySelector('.stage').requestFullscreen?.();
+    };
+
+    function setStatus(text, live) {
+      statusEl.textContent = text;
+      statusEl.className = 'pill' + (live ? ' live' : '');
+    }
+    function showOverlay(html) {
+      if (html === null) { overlay.classList.add('hidden'); return; }
+      overlay.classList.remove('hidden'); overlay.innerHTML = html;
+    }
+
+    const BARE = document.body.classList.contains('bare');
+
+    // Always auto-play. In bare/kiosk mode never show a button: if autoplay-with-sound
+    // is blocked, fall back to muted autoplay (always permitted) so video shows regardless.
+    function tryPlay() {
+      video.play().catch(() => {
+        if (BARE) {
+          video.muted = true;
+          video.play().catch(() => setTimeout(tryPlay, 800));
+        } else {
+          showOverlay('<div class="tapToPlay">▶ Tap to play</div>');
+          overlay.querySelector('.tapToPlay').onclick = () => video.play().then(() => showOverlay(null));
+        }
+      });
+    }
+
+    let ws, pc;
+
+    function newPeer() {
+      pc = new RTCPeerConnection(ICE);
+      pc.ontrack = (e) => {
+        video.srcObject = e.streams[0];
+        // Minimize buffering so frames render the instant they arrive (real-time, no growing delay).
+        try { e.receiver.jitterBufferTarget = 0; } catch {}
+        try { e.receiver.playoutDelayHint = 0; } catch {}
+        showOverlay(null);
+        setStatus('LIVE', true);
+        tryPlay();
+      };
+      pc.onicecandidate = (e) => {
+        if (!e.candidate) return;
+        if (e.candidate.protocol === 'tcp') return; // UDP only — lowest latency
+        ws.send(JSON.stringify({ type: 'ice', candidate: e.candidate, room: ROOM }));
+      };
+      pc.onconnectionstatechange = () => {
+        if (['failed', 'disconnected'].includes(pc.connectionState)) setStatus('reconnecting…');
+      };
+    }
+
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}`);
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'viewer', room: ROOM }));
+      ws.onmessage = async (e) => {
+        const msg = JSON.parse(e.data);
+        switch (msg.type) {
+          case 'broadcaster-online': setStatus('waiting for stream…'); showOverlay('Connecting to the stream…'); break;
+          case 'broadcaster-offline':
+            setStatus('offline'); showOverlay('Waiting for the broadcaster to go live…');
+            video.srcObject = null;
+            break;
+          case 'offer': {
+            newPeer();
+            await pc.setRemoteDescription(msg.sdp);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            ws.send(JSON.stringify({ type: 'answer', sdp: pc.localDescription, room: ROOM }));
+            break;
+          }
+          case 'ice':
+            if (pc && msg.candidate) { try { await pc.addIceCandidate(msg.candidate); } catch {} }
+            break;
+        }
+      };
+      ws.onclose = () => { setStatus('reconnecting…'); setTimeout(connect, 1000); };
+    }
+
+    connect();
+  </script>
+</body>
+</html>
