@@ -111,15 +111,16 @@
 
     let ws, pc;
 
-    // A small, EQUAL playout buffer on every receiver. This keeps latency low while letting
-    // WebRTC lip-sync audio with video — forcing the buffer to 0 plays each track independently
-    // and de-syncs them, so we use a modest target on both instead.
-    const PLAYOUT_MS = 120;
+    // The playout buffer exists ONLY to lip-sync audio with video. So:
+    //  - audio ON  -> small 120ms buffer on both tracks (kept in sync)
+    //  - audio OFF -> zero buffer (nothing to sync) = lowest possible latency
+    function playoutMs() { return audioEnabled ? 120 : 0; }
     function tuneReceivers() {
       if (!pc) return;
+      const ms = playoutMs();
       for (const r of pc.getReceivers()) {
-        try { r.jitterBufferTarget = PLAYOUT_MS; } catch {}
-        try { r.playoutDelayHint = PLAYOUT_MS / 1000; } catch {}
+        try { r.jitterBufferTarget = ms; } catch {}
+        try { r.playoutDelayHint = ms / 1000; } catch {}
       }
     }
     let bufferTimer = null;
@@ -254,6 +255,8 @@
             audioEnabled = msg.enabled;
             video.muted = !msg.enabled;
             if (msg.enabled) { try { video.volume = 1; await video.play(); } catch {} scheduleUnmute(); }
+            // Re-tune the live buffer: audio on -> 120ms (synced), audio off -> 0ms (lowest latency).
+            if (mode === 'live') { tuneReceivers(); pinReceivers(); }
             break;
         }
       };

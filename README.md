@@ -194,7 +194,9 @@ These are pinned in `server.js` (override with `PORT` / `HTTPS_PORT` env vars). 
 Tuned to keep the viewer essentially frame-synced with the source on a LAN (~50–150 ms):
 
 - **UDP only** — TCP ICE candidates are dropped; media never falls back to a slower transport.
-- **Zero jitter buffer** — the viewer sets `jitterBufferTarget = 0` / `playoutDelayHint = 0` and re-asserts it for ~12 s, so frames paint on arrival instead of being held.
+- **Audio-aware buffering** — the playout buffer only exists to lip-sync audio with video, so:
+  - **Audio ON** → a small 120 ms buffer keeps audio and video in sync.
+  - **Audio OFF** → **zero buffer** = lowest possible latency (nothing to sync). Toggling **🔊 Audio on viewers** switches live, instantly.
 - **High network priority** on the sender so media isn't delayed behind other traffic.
 
 ## Features
