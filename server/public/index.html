@@ -173,6 +173,8 @@
         const params = videoSender.getParameters();
         if (!params.encodings || !params.encodings.length) params.encodings = [{}];
         params.encodings[0].maxBitrate = targetBitrate();
+        params.encodings[0].networkPriority = 'high'; // prioritize this media on the wire
+        params.encodings[0].priority = 'high';
         params.degradationPreference = 'maintain-resolution'; // drop FPS before sharpness
         try { await videoSender.setParameters(params); } catch {}
       }

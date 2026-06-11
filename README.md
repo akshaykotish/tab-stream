@@ -30,6 +30,15 @@ It's a fullscreen **launcher**: install it and the device boots straight into yo
 
 To make it the device's home screen: **Settings → Apps → Default apps → Home app → Tab Stream**.
 
+### 📺 Android TV
+
+The app installs and runs on Android TV / Google TV — it shows on the TV home row (Leanback) with its own banner, and works with no touchscreen. To open the settings box with a remote: press **MENU**, or press **OK/center 5× quickly**.
+
+### 🔌 Auto-start on boot
+
+- **Guaranteed:** set Tab Stream as the **Home app** (Settings → Apps → Default apps → Home app). The system then launches it automatically on every boot. This is the recommended kiosk setup.
+- **Fallback:** a `BootReceiver` also tries to launch on `BOOT_COMPLETED` for non-home installs. (Note: Android 12+ restricts background activity starts, so the Home-app method above is the reliable one.)
+
 ---
 
 ## How it works
@@ -97,10 +106,29 @@ Open `view.html`'s URL in the app via the hidden gesture (top‑left, 5 taps).
 
 ---
 
+## Fixed ports
+
+| Port | Use |
+|------|-----|
+| **3000** | HTTP — viewers (`/view.html`) and localhost broadcast |
+| **3443** | HTTPS — broadcast from other devices |
+
+These are pinned in `server.js` (override with `PORT` / `HTTPS_PORT` env vars). You always connect on `:3000`. WebRTC also opens a **random high UDP port** (e.g. `53593`) for the actual media — that's normal, chosen per session by the OS, and needs no configuration on a LAN.
+
+## Latency
+
+Tuned to keep the viewer essentially frame-synced with the source on a LAN (~50–150 ms):
+
+- **UDP only** — TCP ICE candidates are dropped; media never falls back to a slower transport.
+- **Zero jitter buffer** — the viewer sets `jitterBufferTarget = 0` / `playoutDelayHint = 0` and re-asserts it for ~12 s, so frames paint on arrival instead of being held.
+- **High network priority** on the sender so media isn't delayed behind other traffic.
+
 ## Features
 
 - **Fastest transport** — WebRTC over **UDP**; TCP candidates are filtered out so it never falls back to a slower path.
 - **No buffering delay** — viewer jitter buffer is set to 0; frames render the instant they arrive.
+- **Android TV ready** — Leanback launcher + banner, no touchscreen required, remote-friendly.
+- **Auto-start on boot** — via Home-app mode (recommended) or the boot receiver.
 - **HD** — selectable 720p / 1080p / 1440p / 4K with high bitrate so text stays crisp.
 - **One broadcaster → many viewers**, plus independent channels via `?room=NAME`.
 - **Kiosk launcher** — fullscreen, auto‑play, keep‑awake, no on‑screen controls, swallows Back.

@@ -46,6 +46,10 @@ class MainActivity : Activity() {
     private var cornerTaps = 0
     private var firstTapAt = 0L
 
+    // TV-remote equivalent: 5 quick OK/center presses opens settings (TVs have no touchscreen).
+    private var centerPresses = 0
+    private var firstCenterAt = 0L
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -170,9 +174,21 @@ class MainActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (web.canGoBack()) { web.goBack(); return true }
-            return true // swallow — don't drop out of the launcher
+        when (keyCode) {
+            KeyEvent.KEYCODE_BACK -> {
+                if (web.canGoBack()) { web.goBack() }
+                return true // swallow — don't drop out of the launcher
+            }
+            // Open settings from a TV remote.
+            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> {
+                promptForUrl(); return true
+            }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                val now = SystemClock.uptimeMillis()
+                if (now - firstCenterAt > 2500) { centerPresses = 0; firstCenterAt = now }
+                centerPresses++
+                if (centerPresses >= 5) { centerPresses = 0; promptForUrl(); return true }
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
