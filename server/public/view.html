@@ -86,28 +86,30 @@
 
     let ws, pc;
 
-    // Force every receiver's playout buffer to zero, and keep re-asserting it for a few
-    // seconds because Chrome ramps the jitter buffer back up after the connection settles.
-    function minimizeBuffer() {
+    // A small, EQUAL playout buffer on every receiver. This keeps latency low while letting
+    // WebRTC lip-sync audio with video — forcing the buffer to 0 plays each track independently
+    // and de-syncs them, so we use a modest target on both instead.
+    const PLAYOUT_MS = 120;
+    function tuneReceivers() {
       if (!pc) return;
       for (const r of pc.getReceivers()) {
-        try { r.jitterBufferTarget = 0; } catch {}
-        try { r.playoutDelayHint = 0; } catch {}
+        try { r.jitterBufferTarget = PLAYOUT_MS; } catch {}
+        try { r.playoutDelayHint = PLAYOUT_MS / 1000; } catch {}
       }
     }
     let bufferTimer = null;
-    function pinBufferLow() {
+    function pinReceivers() {
       let n = 0;
       clearInterval(bufferTimer);
-      bufferTimer = setInterval(() => { minimizeBuffer(); if (++n > 12) clearInterval(bufferTimer); }, 1000);
+      bufferTimer = setInterval(() => { tuneReceivers(); if (++n > 12) clearInterval(bufferTimer); }, 1000);
     }
 
     function newPeer() {
       pc = new RTCPeerConnection(ICE);
       pc.ontrack = (e) => {
         video.srcObject = e.streams[0];
-        minimizeBuffer();
-        pinBufferLow();
+        tuneReceivers();
+        pinReceivers();
         showOverlay(null);
         setStatus('LIVE', true);
         tryPlay();
