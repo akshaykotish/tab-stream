@@ -133,6 +133,19 @@ Screen capture needs a **secure context**, so open the broadcast page one of two
 
 Click **Start sharing**, pick a tab/window/screen, choose a quality (up to 4K), done.
 
+### Stream a local file (buffered, full quality)
+
+Live mode (above) is real‑time but re‑encodes. **File mode** plays a video file at its **original quality, perfectly smooth** — viewers pre‑download a few seconds first, then play.
+
+1. On the dashboard, scroll to **"Stream a local file"**.
+2. Add a video — either **choose a file to upload**, or drop files into the server's `server/media/` folder and hit **Refresh**.
+3. Set **Pre‑buffer before play** (10–120 s) — how much each viewer downloads before starting.
+4. Click **▶ Play** on a file. Every viewer buffers, then plays it in sync‑ish, full quality.
+5. **⏹ Back to live** returns viewers to the live screen share.
+
+- **Formats:** `.mp4` / `.webm` / `.mov` play directly with seeking. `.mkv` / `.avi` / `.flv` / `.wmv` are **remuxed to MP4 on the fly** — this needs **ffmpeg** installed (`brew install ffmpeg`). Without ffmpeg, only the native formats play.
+- The pre‑buffer is the "download N seconds locally, then stream" behaviour — higher latency than live, but no stutter and no quality loss.
+
 ### 3. Watch
 
 Open `http://<your-ip>:3000/view.html` on any phone, laptop, or TV browser on the same network — **or** use the Android app and point it at that URL.
@@ -192,6 +205,7 @@ Tuned to keep the viewer essentially frame-synced with the source on a LAN (~50�
 - **Auto-start on boot** — via Home-app mode (recommended) or the boot receiver.
 - **HD** — selectable 720p / 1080p / 1440p / 4K with high bitrate so text stays crisp.
 - **Audio** — share tab audio, plus a dashboard **🔊 Audio on viewers** checkbox that live‑mutes/unmutes every viewer's output device.
+- **File mode** — stream local `.mp4/.mkv/.avi/...` files with a configurable 10–120 s pre‑buffer for smooth, full‑quality, stutter‑free playback (ffmpeg auto‑remuxes non‑MP4).
 - **One broadcaster → many viewers**, plus independent channels via `?room=NAME`.
 - **Kiosk launcher** — fullscreen, auto‑play, keep‑awake, no on‑screen controls, swallows Back.
 - **Zero install for viewers** — any browser on the LAN just opens a URL.

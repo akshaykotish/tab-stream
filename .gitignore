@@ -20,3 +20,7 @@ android/captures/
 
 # Standalone binary build output
 server/dist/
+
+# Runtime media files (drop your videos here at runtime)
+server/media/*
+!server/media/.gitkeep

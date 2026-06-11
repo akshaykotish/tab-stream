@@ -92,6 +92,23 @@
       </div>
       <p class="muted">Anyone on the same Wi‑Fi/LAN can watch by opening that URL. No install needed.</p>
     </div>
+
+    <div class="links">
+      <h2>Stream a local file — buffered, full quality</h2>
+      <div class="row" style="flex-wrap:wrap">
+        <input type="file" id="fileInput" accept="video/*,.mkv,.avi,.flv,.wmv,.ts" />
+        <button id="refreshFiles">Refresh</button>
+        <button id="backLive" class="danger">⏹ Back to live</button>
+      </div>
+      <div class="row">
+        <label class="audio" style="gap:10px">Pre‑buffer before play
+          <input type="range" id="buffer" min="10" max="120" step="5" value="20" style="vertical-align:middle" />
+          <span id="bufferVal" class="stat">20s</span>
+        </label>
+      </div>
+      <div id="fileList" class="muted">No files yet — choose a video above to upload, or drop files into the server's <code>media/</code> folder.</div>
+      <p class="muted" id="ffNote"></p>
+    </div>
   </main>
 
   <script>
@@ -169,7 +186,7 @@
           case 'replaced': setStatus('replaced by another broadcaster'); break;
         }
       };
-      ws.onclose = () => { if (localStream) setTimeout(connectWS, 1000); };
+      ws.onclose = () => { setTimeout(connectWS, 1500); }; // keep broadcaster alive for file mode
     }
 
     async function makeOffer(viewerId) {
@@ -236,7 +253,11 @@
       // If the user clicks the browser's native "Stop sharing", clean up.
       localStream.getVideoTracks()[0].addEventListener('ended', stopSharing);
 
-      connectWS();
+      // Switch viewers off any file and (re)offer live to everyone currently watching.
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'live', room: ROOM }));
+        ws.send(JSON.stringify({ type: 'broadcaster', room: ROOM }));
+      }
     };
 
     // Changing quality while live updates bitrate immediately (resolution change needs a restart).
@@ -257,13 +278,74 @@
       if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
       for (const pc of peers.values()) pc.close();
       peers.clear();
-      if (ws) ws.close();
+      // Keep ws open so file mode still works after stopping a live share.
       els.preview.srcObject = null;
       els.placeholder.style.display = '';
       els.start.disabled = false; els.stop.disabled = true;
-      els.viewers.textContent = '0';
       setStatus('idle');
     }
+
+    // ---------------- File mode ----------------
+    const fEls = {
+      input: document.getElementById('fileInput'),
+      refresh: document.getElementById('refreshFiles'),
+      backLive: document.getElementById('backLive'),
+      buffer: document.getElementById('buffer'),
+      bufferVal: document.getElementById('bufferVal'),
+      list: document.getElementById('fileList'),
+      ffNote: document.getElementById('ffNote'),
+    };
+    fEls.buffer.oninput = () => { fEls.bufferVal.textContent = fEls.buffer.value + 's'; };
+
+    function fmtSize(b) { const u = ['B','KB','MB','GB']; let i = 0; while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; } return b.toFixed(b < 10 && i > 0 ? 1 : 0) + u[i]; }
+
+    async function loadFiles() {
+      try {
+        const data = await (await fetch('/api/files')).json();
+        fEls.ffNote.textContent = data.ffmpeg ? '' : '⚠ ffmpeg not found — .mkv/.avi/.flv won’t play until ffmpeg is installed.';
+        if (!data.files.length) { fEls.list.innerHTML = 'No files yet — choose a video above to upload, or drop files into the server’s <code>media/</code> folder.'; return; }
+        fEls.list.innerHTML = '';
+        for (const f of data.files) {
+          const playable = f.native || data.ffmpeg;
+          const row = document.createElement('div'); row.className = 'row';
+          const btn = document.createElement('button');
+          btn.textContent = '▶ Play'; btn.className = 'primary'; btn.disabled = !playable;
+          btn.onclick = () => playFile(f.name);
+          const label = document.createElement('span');
+          label.innerHTML = `<b>${f.name}</b> &nbsp;<span class="muted">${fmtSize(f.size)}${f.needsFfmpeg ? ' · remuxed to MP4' : ''}</span>`;
+          row.append(btn, label); fEls.list.append(row);
+        }
+      } catch { fEls.list.textContent = 'Could not load file list.'; }
+    }
+
+    async function uploadFile(file) {
+      fEls.list.innerHTML = `Uploading <b>${file.name}</b>… (this can take a moment for large files)`;
+      try {
+        await fetch('/api/upload/' + encodeURIComponent(file.name), { method: 'PUT', body: file });
+        fEls.input.value = '';
+        await loadFiles();
+      } catch { fEls.list.textContent = 'Upload failed.'; }
+    }
+    fEls.input.onchange = () => { if (fEls.input.files[0]) uploadFile(fEls.input.files[0]); };
+    fEls.refresh.onclick = loadFiles;
+
+    function playFile(name) {
+      const bufferSeconds = parseInt(fEls.buffer.value, 10);
+      const url = '/media/' + encodeURIComponent(name);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'file', url, name, bufferSeconds, room: ROOM }));
+      }
+      setStatus('FILE · ' + name, true);
+    }
+
+    fEls.backLive.onclick = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'live', room: ROOM }));
+      setStatus(localStream ? 'LIVE' : 'idle', !!localStream);
+    };
+
+    // Connect signaling on load (so file mode works without screen sharing) and list files.
+    connectWS();
+    loadFiles();
   </script>
 </body>
 </html>

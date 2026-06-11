@@ -104,9 +104,76 @@
       bufferTimer = setInterval(() => { tuneReceivers(); if (++n > 12) clearInterval(bufferTimer); }, 1000);
     }
 
+    // ---------------- File mode: pre-buffer, then smooth full-quality playback ----------------
+    let mode = 'live';            // 'live' (WebRTC) | 'file' (buffered HTTP)
+    let audioEnabled = true;      // mirrors the dashboard audio toggle
+    let bufferPoll = null;
+
+    function stopLive() {
+      if (pc) { try { pc.close(); } catch {} pc = null; }
+      video.srcObject = null;
+    }
+
+    function bufferedAhead() {
+      const b = video.buffered, t = video.currentTime;
+      for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.25 && b.end(i) > t) return b.end(i) - t;
+      return b.length ? Math.max(0, b.end(b.length - 1) - t) : 0;
+    }
+
+    function playFileMode(url, name, bufferSeconds) {
+      mode = 'file';
+      stopLive();
+      clearInterval(bufferPoll);
+      setStatus('FILE', true);
+      video.srcObject = null;
+      video.src = url;
+      video.preload = 'auto';
+      video.muted = !audioEnabled;
+      video.load();
+
+      const target = Math.max(1, bufferSeconds || 15);
+      let started = false;
+      showOverlay('Buffering 0%' + (name ? ' · ' + name : ''));
+
+      const gate = () => {
+        if (mode !== 'file') return;
+        const dur = isFinite(video.duration) ? video.duration : target;
+        const goal = Math.min(target, Math.max(1, dur - video.currentTime));
+        const ahead = bufferedAhead();
+        // Start once we have the requested seconds buffered, or the browser says it can play through.
+        const enough = ahead >= goal || (video.readyState >= 4 && ahead >= Math.min(goal, 3));
+        if (!started) {
+          showOverlay('Buffering ' + Math.min(100, Math.round(ahead / goal * 100)) + '%' + (name ? ' · ' + name : ''));
+          if (enough) {
+            started = true; showOverlay(null);
+            video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+          }
+        }
+      };
+      bufferPoll = setInterval(gate, 300);
+
+      video.onwaiting = () => { if (mode === 'file') { started = false; showOverlay('Re‑buffering…'); } };
+      video.onplaying = () => { if (mode === 'file') showOverlay(null); };
+      video.onerror   = () => { if (mode === 'file') showOverlay('Could not play this file.'); };
+    }
+
+    function goLiveMode() {
+      mode = 'live';
+      clearInterval(bufferPoll);
+      try { video.pause(); } catch {}
+      video.removeAttribute('src');
+      video.srcObject = null;
+      video.load();
+      setStatus('waiting for stream…');
+      showOverlay('Waiting for the broadcaster to go live…');
+    }
+
     function newPeer() {
       pc = new RTCPeerConnection(ICE);
       pc.ontrack = (e) => {
+        mode = 'live';
+        clearInterval(bufferPoll);
+        video.removeAttribute('src');
         video.srcObject = e.streams[0];
         tuneReceivers();
         pinReceivers();
@@ -131,10 +198,20 @@
       ws.onmessage = async (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.type) {
-          case 'broadcaster-online': setStatus('waiting for stream…'); showOverlay('Connecting to the stream…'); break;
+          case 'broadcaster-online':
+            if (mode === 'live') { setStatus('waiting for stream…'); showOverlay('Connecting to the stream…'); }
+            break;
           case 'broadcaster-offline':
-            setStatus('offline'); showOverlay('Waiting for the broadcaster to go live…');
-            video.srcObject = null;
+            if (mode === 'live') {
+              setStatus('offline'); showOverlay('Waiting for the broadcaster to go live…');
+              video.srcObject = null;
+            }
+            break;
+          case 'file':
+            playFileMode(location.origin + msg.url, msg.name, msg.bufferSeconds);
+            break;
+          case 'live':
+            goLiveMode();
             break;
           case 'offer': {
             newPeer();
@@ -148,7 +225,8 @@
             if (pc && msg.candidate) { try { await pc.addIceCandidate(msg.candidate); } catch {} }
             break;
           case 'audio':
-            // Dashboard toggled audio for this output device.
+            // Dashboard toggled audio for this output device (applies to live and file modes).
+            audioEnabled = msg.enabled;
             video.muted = !msg.enabled;
             if (msg.enabled) { try { video.volume = 1; await video.play(); } catch {} }
             break;
