@@ -1,0 +1,5 @@
+{
+  "assets": ["public/**/*"],
+  "targets": ["node22-macos-arm64"],
+  "outputPath": "dist"
+}

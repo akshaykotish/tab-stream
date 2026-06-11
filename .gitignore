@@ -17,3 +17,6 @@ android/captures/
 
 # OS
 .DS_Store
+
+# Standalone binary build output
+server/dist/

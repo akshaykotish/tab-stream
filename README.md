@@ -41,6 +41,52 @@ The app installs and runs on Android TV / Google TV — it shows on the TV home 
 
 ---
 
+## ⬇ Get the server
+
+The server is the dashboard that broadcasts and relays the stream. Three ways to get it — pick one:
+
+| Option | Needs | Best for |
+|--------|-------|----------|
+| **A. Standalone binary** | nothing | just run it, no setup (macOS Apple-Silicon) |
+| **B. Server zip** | Node.js 18+ | any OS, no `npm install` (deps bundled) |
+| **C. From source** | Node.js 18+ + git | developers / customizing |
+
+### A. Standalone binary — no Node.js needed
+
+**[Download tabstream-server-macos-arm64 →](https://github.com/akshaykotish/tab-stream/releases/latest/download/tabstream-server-macos-arm64)**
+
+```bash
+chmod +x tabstream-server-macos-arm64
+./tabstream-server-macos-arm64
+```
+
+> macOS Gatekeeper may block it the first time → **System Settings → Privacy & Security → Open Anyway**, or run `xattr -d com.apple.quarantine ./tabstream-server-macos-arm64`.
+> The binary serves **HTTP** (broadcast from `http://localhost:3000/`). For HTTPS broadcast from other devices, use option B or C and run `make-certs.sh`.
+
+### B. Server zip — Node.js, no install step
+
+**[Download TabStream-server.zip →](https://github.com/akshaykotish/tab-stream/releases/latest/download/TabStream-server.zip)**
+
+1. Install **Node.js 18+** → https://nodejs.org (one time).
+2. Unzip `TabStream-server.zip`.
+3. Run it — dependencies are already bundled:
+   - **macOS / Linux:** `./start.sh`  (or double-click)
+   - **Windows:** double-click `start.bat`
+   - **Manual:** `node server.js`
+
+### C. From source
+
+```bash
+git clone https://github.com/akshaykotish/tab-stream.git
+cd tab-stream/server
+npm install
+npm start
+```
+
+**Prerequisites:** Node.js 18+ (and git). `npm install` pulls `express` + `ws`.
+
+---
+
 ## How it works
 
 ```
@@ -103,6 +149,17 @@ cp local.properties.sample local.properties   # then edit sdk.dir
 ```
 
 Open `view.html`'s URL in the app via the hidden gesture (top‑left, 5 taps).
+
+## Compile the standalone server binary
+
+**Prerequisites:** Node.js 18+ (npx). The build downloads a base runtime once.
+
+```bash
+cd server
+npx @yao-pkg/pkg server.js --config pkg.json --output dist/tabstream-server-macos-arm64
+```
+
+`pkg.json` bundles `public/**` into the binary. Change the `targets` in `pkg.json` to build for other platforms, e.g. `node22-win-x64`, `node22-linux-x64`, `node22-macos-x64`.
 
 ---
 
