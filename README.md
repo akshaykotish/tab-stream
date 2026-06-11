@@ -85,6 +85,10 @@ npm start
 
 **Prerequisites:** Node.js 18+ (and git). `npm install` pulls `express` + `ws`.
 
+### 🤖 Compile with an AI assistant
+
+Don't want to figure out the steps yourself? **[PROMPTS.md](PROMPTS.md)** has copy‑paste prompts for **Claude**, **ChatGPT**, and **Gemini** that walk you through compiling the server binary and the Android APK on your exact OS.
+
 ---
 
 ## How it works
