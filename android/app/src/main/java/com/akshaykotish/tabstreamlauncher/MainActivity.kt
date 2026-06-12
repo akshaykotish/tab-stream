@@ -2,7 +2,6 @@ package com.akshaykotish.tabstreamlauncher
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.media.AudioManager
@@ -11,7 +10,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.text.InputType
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -24,7 +22,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.EditText
 import android.widget.FrameLayout
 import java.net.HttpURLConnection
 import java.net.Inet4Address
@@ -41,7 +38,8 @@ import java.util.concurrent.atomic.AtomicReference
  * lowest-latency protocol for LAN streaming. Registered as a HOME app so the device can
  * boot straight into the stream.
  *
- * Hidden config: tap the TOP-LEFT corner 5 times quickly to open the URL box.
+ * The host IP is found automatically by scanning the LAN — there is no manual URL entry.
+ * Force a re-scan: tap the TOP-LEFT corner 5× (touch) or press MENU / OK ×5 (TV remote).
  */
 class MainActivity : Activity() {
 
@@ -97,8 +95,8 @@ class MainActivity : Activity() {
         setContentView(root)
         hideSystemBars()
 
-        val url = prefs.getString("url", null)
-        if (url.isNullOrBlank()) autoDetectAndLoad() else web.loadUrl(bare(url))
+        // Always auto-detect the host on the network — never ask for a URL manually.
+        autoDetectAndLoad()
     }
 
     /** Ensure the launcher always loads the clean, controls-free viewer. */
@@ -118,23 +116,35 @@ class MainActivity : Activity() {
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
     }
 
+    @Volatile private var detecting = false
+
     private fun autoDetectAndLoad() {
+        if (detecting) return
+        detecting = true
         showMessage("🔎 Searching your network for the Tab&nbsp;Stream server…")
         Thread {
-            val host = scanForHost()
+            // Fast path: re-check the last host we used; otherwise scan the whole subnet.
+            val host = lastKnownHost()?.let { if (probe(it)) it else null } ?: scanForHost()
             runOnUiThread {
+                detecting = false
                 if (host != null) {
                     val u = "http://$host:$SCAN_PORT/view.html"
                     prefs.edit().putString("url", u).apply()
                     pageLoaded = false
                     web.loadUrl(bare(u))
                 } else {
-                    showMessage("No Tab&nbsp;Stream server found on this network.<br><br>" +
-                        "Open the URL box: tap top-left 5× (touch) or press MENU / OK ×5 (remote).")
-                    promptForUrl()
+                    // Keep trying automatically until the server comes online — no manual entry.
+                    showMessage("Searching for the Tab&nbsp;Stream server on your network…<br><small>(will keep retrying)</small>")
+                    retry.removeCallbacksAndMessages(null)
+                    retry.postDelayed({ autoDetectAndLoad() }, 5000)
                 }
             }
         }.start()
+    }
+
+    private fun lastKnownHost(): String? {
+        val saved = prefs.getString("url", null) ?: return null
+        return try { java.net.URI(saved).host } catch (_: Exception) { null }
     }
 
     private fun localSubnetPrefixes(): List<String> {
@@ -181,10 +191,7 @@ class MainActivity : Activity() {
 
     private fun scheduleRetry() {
         retry.removeCallbacksAndMessages(null)
-        retry.postDelayed({
-            val url = prefs.getString("url", null)
-            if (!pageLoaded && !url.isNullOrBlank()) web.loadUrl(bare(url))
-        }, 4000)
+        retry.postDelayed({ if (!pageLoaded) autoDetectAndLoad() }, 4000)
     }
 
     // Watch for 5 quick taps in the top-left corner — invisible settings trigger.
@@ -195,36 +202,12 @@ class MainActivity : Activity() {
             if (corner) {
                 if (now - firstTapAt > 2500) { cornerTaps = 0; firstTapAt = now }
                 cornerTaps++
-                if (cornerTaps >= 5) { cornerTaps = 0; promptForUrl() }
+                if (cornerTaps >= 5) { cornerTaps = 0; autoDetectAndLoad() } // force a re-scan
             } else {
                 cornerTaps = 0
             }
         }
         return super.dispatchTouchEvent(ev)
-    }
-
-    private fun promptForUrl() {
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_TEXT_VARIATION_URI
-            setText(prefs.getString("url", "http://192.168.1.42:3000/view.html"))
-            setSelection(text.length)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Stream URL")
-            .setMessage("Enter the viewer URL from the Node server.")
-            .setView(input)
-            .setPositiveButton("Load") { _, _ ->
-                var u = input.text.toString().trim()
-                if (u.isNotEmpty()) {
-                    if (!u.startsWith("http://") && !u.startsWith("https://")) u = "http://$u"
-                    prefs.edit().putString("url", u).apply()
-                    pageLoaded = false
-                    web.loadUrl(bare(u))
-                }
-            }
-            .setNeutralButton("Auto-detect") { _, _ -> autoDetectAndLoad() }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     companion object {
@@ -267,15 +250,15 @@ class MainActivity : Activity() {
                 if (web.canGoBack()) { web.goBack() }
                 return true // swallow — don't drop out of the launcher
             }
-            // Open settings from a TV remote.
+            // Force a re-scan from a TV remote.
             KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> {
-                promptForUrl(); return true
+                autoDetectAndLoad(); return true
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                 val now = SystemClock.uptimeMillis()
                 if (now - firstCenterAt > 2500) { centerPresses = 0; firstCenterAt = now }
                 centerPresses++
-                if (centerPresses >= 5) { centerPresses = 0; promptForUrl(); return true }
+                if (centerPresses >= 5) { centerPresses = 0; autoDetectAndLoad(); return true }
             }
         }
         return super.onKeyDown(keyCode, event)
