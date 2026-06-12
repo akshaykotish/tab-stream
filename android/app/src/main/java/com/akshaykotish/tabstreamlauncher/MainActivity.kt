@@ -26,6 +26,13 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.EditText
 import android.widget.FrameLayout
+import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.NetworkInterface
+import java.net.URL
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Fullscreen kiosk launcher — stream only, no on-screen controls.
@@ -91,13 +98,85 @@ class MainActivity : Activity() {
         hideSystemBars()
 
         val url = prefs.getString("url", null)
-        if (url.isNullOrBlank()) promptForUrl() else web.loadUrl(bare(url))
+        if (url.isNullOrBlank()) autoDetectAndLoad() else web.loadUrl(bare(url))
     }
 
     /** Ensure the launcher always loads the clean, controls-free viewer. */
     private fun bare(u: String): String {
         if (u.contains("bare")) return u
         return u + (if (u.contains("?")) "&" else "?") + "bare=1"
+    }
+
+    // ---------------- Smart host auto-detection ----------------
+    // Scans the device's own LAN subnet(s) for a Tab Stream server (responding on /api/ping).
+
+    private fun showMessage(msg: String) {
+        val html = "<html><body style='margin:0;background:#000;color:#8a93a6;" +
+            "font-family:sans-serif;height:100vh;display:flex;align-items:center;" +
+            "justify-content:center;text-align:center;padding:24px'><div style='font-size:18px;" +
+            "line-height:1.6'>$msg</div></body></html>"
+        web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+    }
+
+    private fun autoDetectAndLoad() {
+        showMessage("🔎 Searching your network for the Tab&nbsp;Stream server…")
+        Thread {
+            val host = scanForHost()
+            runOnUiThread {
+                if (host != null) {
+                    val u = "http://$host:$SCAN_PORT/view.html"
+                    prefs.edit().putString("url", u).apply()
+                    pageLoaded = false
+                    web.loadUrl(bare(u))
+                } else {
+                    showMessage("No Tab&nbsp;Stream server found on this network.<br><br>" +
+                        "Open the URL box: tap top-left 5× (touch) or press MENU / OK ×5 (remote).")
+                    promptForUrl()
+                }
+            }
+        }.start()
+    }
+
+    private fun localSubnetPrefixes(): List<String> {
+        val prefixes = mutableListOf<String>()
+        try {
+            for (nif in NetworkInterface.getNetworkInterfaces()) {
+                if (!nif.isUp || nif.isLoopback) continue
+                for (addr in nif.inetAddresses) {
+                    if (addr is Inet4Address && addr.isSiteLocalAddress) {
+                        val ip = addr.hostAddress ?: continue
+                        val dot = ip.lastIndexOf('.')
+                        if (dot > 0) prefixes.add(ip.substring(0, dot + 1))
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return prefixes.distinct()
+    }
+
+    private fun scanForHost(): String? {
+        val prefixes = localSubnetPrefixes()
+        if (prefixes.isEmpty()) return null
+        val found = AtomicReference<String?>(null)
+        val pool = Executors.newFixedThreadPool(48)
+        for (prefix in prefixes) for (i in 1..254) {
+            pool.execute {
+                if (found.get() == null && probe(prefix + i)) found.compareAndSet(null, prefix + i)
+            }
+        }
+        pool.shutdown()
+        pool.awaitTermination(12, TimeUnit.SECONDS)
+        pool.shutdownNow()
+        return found.get()
+    }
+
+    private fun probe(ip: String): Boolean {
+        return try {
+            val c = URL("http://$ip:$SCAN_PORT/api/ping").openConnection() as HttpURLConnection
+            c.connectTimeout = 400; c.readTimeout = 400; c.requestMethod = "GET"
+            val ok = c.responseCode == 200 && c.inputStream.bufferedReader().readText().contains("tab-stream")
+            c.disconnect(); ok
+        } catch (_: Exception) { false }
     }
 
     private fun scheduleRetry() {
@@ -143,8 +222,13 @@ class MainActivity : Activity() {
                     web.loadUrl(bare(u))
                 }
             }
+            .setNeutralButton("Auto-detect") { _, _ -> autoDetectAndLoad() }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    companion object {
+        private const val SCAN_PORT = 3000 // port the server listens on (LAN auto-detect)
     }
 
     private fun hideSystemBars() {

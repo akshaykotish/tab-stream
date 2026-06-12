@@ -35,6 +35,56 @@ const VIDEO_EXT = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.ogg', '.mov', '.mk
 const NATIVE = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.ogg', '.mov']); // browser-playable as-is
 const MIME = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.ogv': 'video/ogg', '.ogg': 'video/ogg' };
 
+// Signature endpoint — the Android app pings this while scanning the LAN to auto-find the host.
+app.get('/api/ping', (req, res) => {
+  res.json({ app: 'tab-stream', name: 'Tab Stream', port: Number(PORT) });
+});
+
+// Download the Android app from the host itself: http://<ip>:<port>/d
+app.get('/d', (req, res) => {
+  const host = req.headers.host || `localhost:${PORT}`;
+  const ip = host.split(':')[0];
+  const hasApk = fs.existsSync(path.join(__dirname, 'public', 'TabStream.apk'));
+  res.set('Content-Type', 'text/html').send(`<!doctype html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Get Tab Stream</title>
+<style>
+  body{margin:0;background:#0b0e14;color:#e6e9ef;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+       min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
+  .card{max-width:420px}
+  h1{font-size:26px;margin:0 0 6px} .sub{color:#7c8ba6;margin:0 0 24px}
+  a.btn{display:inline-block;background:#2f6bff;color:#fff;text-decoration:none;font-weight:700;font-size:18px;
+        padding:16px 28px;border-radius:12px}
+  a.btn.off{background:#26304a;color:#7c8ba6;pointer-events:none}
+  .steps{text-align:left;background:#10162400;margin:26px auto 0;color:#9aa3b2;font-size:14px;line-height:1.7}
+  code{background:#1c2230;padding:2px 7px;border-radius:6px;color:#cfd6e4}
+  .foot{margin-top:28px;color:#5b6477;font-size:12px}
+</style></head><body><div class="card">
+  <h1>📺 Tab Stream</h1>
+  <p class="sub">Fullscreen kiosk viewer for Android phones &amp; TV</p>
+  ${hasApk
+    ? `<a class="btn" href="/d/app.apk" download>⬇ Download APK</a>`
+    : `<a class="btn off">APK not bundled on this server</a>`}
+  <div class="steps">
+    <p><b>Install</b></p>
+    1. Tap <b>Download APK</b> above.<br>
+    2. Open it &mdash; allow “install from unknown sources” if asked.<br>
+    3. Launch <b>Tab Stream</b>. It auto‑finds this server (<code>${ip}</code>) on your network.<br>
+    4. To watch in a browser instead: <a style="color:#7aa2ff" href="/view.html">open the viewer</a>.
+  </div>
+  <p class="foot">An Akshay Kotish &amp; Co. app</p>
+</div></body></html>`);
+});
+
+// Serve the APK with the right headers (and a couple of friendly aliases).
+app.get(['/d/app.apk', '/TabStream.apk', '/app.apk'], (req, res) => {
+  const apk = path.join(__dirname, 'public', 'TabStream.apk');
+  if (!fs.existsSync(apk)) return res.status(404).send('APK not bundled on this server.');
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', 'attachment; filename="TabStream.apk"');
+  fs.createReadStream(apk).pipe(res);
+});
+
 // List available media files.
 app.get('/api/files', (req, res) => {
   let names = [];
@@ -301,7 +351,12 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('\n  Watch (open on any device on the same network):');
   for (const ip of ips) console.log(`    http://${ip}:${PORT}/view.html`);
   if (ips.length === 0) console.log(`    http://localhost:${PORT}/view.html`);
-  console.log('');
+
+  const hasApk = fs.existsSync(path.join(__dirname, 'public', 'TabStream.apk'));
+  console.log(`\n  Get the Android app${hasApk ? '' : ' (APK not bundled)'} — open on your phone:`);
+  for (const ip of ips) console.log(`    http://${ip}:${PORT}/d`);
+  if (ips.length === 0) console.log(`    http://localhost:${PORT}/d`);
+  console.log('\n  The app auto-detects this server on the LAN — no IP typing needed.\n');
 });
 
 if (httpsServer) {

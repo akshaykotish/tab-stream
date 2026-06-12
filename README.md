@@ -24,7 +24,11 @@
 
 **[Download TabStream.apk →](https://github.com/akshaykotish/tab-stream/releases/latest/download/TabStream.apk)**
 
-It's a fullscreen **launcher**: install it and the device boots straight into your stream — no buttons, no chrome, just the picture. To change the stream address, **tap the top‑left corner 5× quickly**.
+Or download it **straight from the server** on your phone's browser: **`http://<server-ip>:3000/d`** (the Node console prints this URL).
+
+It's a fullscreen **launcher**: install it and the device boots straight into your stream — no buttons, no chrome, just the picture.
+
+**No IP typing needed** — on first launch the app **auto‑scans your network and finds the server itself**. To change it manually: **tap the top‑left corner 5× quickly** (or press **MENU** / **OK ×5** on a TV remote) → the box has an **Auto‑detect** button too.
 
 > Android may warn about installing outside the Play Store. Enable **Settings → Apps → Special access → Install unknown apps** for your browser/file manager, then open the APK.
 
@@ -211,6 +215,7 @@ Tuned to keep the viewer essentially frame-synced with the source on a LAN (~50�
 - **One broadcaster → many viewers**, plus independent channels via `?room=NAME`.
 - **Kiosk launcher** — fullscreen, auto‑play, keep‑awake, no on‑screen controls, swallows Back.
 - **Zero install for viewers** — any browser on the LAN just opens a URL.
+- **Self‑hosting** — download the APK from the server itself at `IP:3000/d`; the app then **auto‑detects the host** on the network (no IP entry).
 
 ---
 
