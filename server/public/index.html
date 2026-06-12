@@ -76,8 +76,14 @@
       </label>
       <label class="audio">FPS
         <select id="fps">
-          <option value="30" selected>30</option>
-          <option value="60">60</option>
+          <option value="30">30</option>
+          <option value="60" selected>60</option>
+        </select>
+      </label>
+      <label class="audio">Mode
+        <select id="mode">
+          <option value="motion" selected>Smooth (video)</option>
+          <option value="detail">Sharp (text)</option>
         </select>
       </label>
       <label class="audio"><input type="checkbox" id="audio" checked /> Share tab audio</label>
@@ -119,6 +125,7 @@
       viewerAudio: document.getElementById('viewerAudio'),
       quality: document.getElementById('quality'),
       fps: document.getElementById('fps'),
+      mode: document.getElementById('mode'),
       preview: document.getElementById('preview'),
       placeholder: document.getElementById('placeholder'),
       status: document.getElementById('status'),
@@ -203,7 +210,8 @@
         params.encodings[0].maxBitrate = targetBitrate();
         params.encodings[0].networkPriority = 'high'; // prioritize this media on the wire
         params.encodings[0].priority = 'high';
-        params.degradationPreference = 'maintain-resolution'; // drop FPS before sharpness
+        // Smooth mode keeps frame rate up (drops resolution if needed); sharp mode does the opposite.
+        params.degradationPreference = els.mode.value === 'motion' ? 'maintain-framerate' : 'maintain-resolution';
         try { await videoSender.setParameters(params); } catch {}
       }
 
@@ -238,9 +246,10 @@
           video: videoConstraints,
           audio: els.audio.checked ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
         });
-        // Hint the encoder: a tab/screen is mostly fine text -> prioritize detail over motion smoothness.
+        // Tell the encoder what we're sending: 'motion' keeps frame rate high (smooth video),
+        // 'detail' keeps text crisp (but can drop FPS). Defaults to motion to avoid stutter.
         const vt = localStream.getVideoTracks()[0];
-        if (vt) vt.contentHint = 'detail';
+        if (vt) vt.contentHint = els.mode.value === 'motion' ? 'motion' : 'detail';
       } catch (err) {
         if (err.name !== 'NotAllowedError') alert('Could not start capture: ' + err.message);
         return;
@@ -269,6 +278,22 @@
         if (!params.encodings || !params.encodings.length) params.encodings = [{}];
         params.encodings[0].maxBitrate = targetBitrate();
         try { await s.setParameters(params); } catch {}
+      }
+    };
+
+    // Switching Mode mid-stream re-tunes the encoder live.
+    els.mode.onchange = async () => {
+      const motion = els.mode.value === 'motion';
+      if (localStream) {
+        const vt = localStream.getVideoTracks()[0];
+        if (vt) vt.contentHint = motion ? 'motion' : 'detail';
+      }
+      for (const pc of peers.values()) {
+        const s = pc.getSenders().find(x => x.track && x.track.kind === 'video');
+        if (!s) continue;
+        const p = s.getParameters();
+        p.degradationPreference = motion ? 'maintain-framerate' : 'maintain-resolution';
+        try { await s.setParameters(p); } catch {}
       }
     };
 
