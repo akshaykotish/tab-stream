@@ -114,7 +114,7 @@
     // The playout buffer exists ONLY to lip-sync audio with video. So:
     //  - audio ON  -> small 120ms buffer on both tracks (kept in sync)
     //  - audio OFF -> zero buffer (nothing to sync) = lowest possible latency
-    function playoutMs() { return audioEnabled ? 120 : 0; }
+    function playoutMs() { return audioEnabled ? 80 : 0; }
     function tuneReceivers() {
       if (!pc) return;
       const ms = playoutMs();

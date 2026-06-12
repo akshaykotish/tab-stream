@@ -67,8 +67,8 @@
       <button id="stop" class="danger" disabled>Stop</button>
       <label class="audio">Quality
         <select id="quality">
-          <option value="720">720p</option>
-          <option value="1080" selected>1080p HD</option>
+          <option value="720" selected>720p</option>
+          <option value="1080">1080p HD</option>
           <option value="1440">1440p</option>
           <option value="2160">4K</option>
           <option value="source">Source (no limit)</option>
@@ -143,8 +143,9 @@
 
     const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    // Target bitrate (bits/sec) per quality tier — raised for better quality (WebRTC adapts down if the link can't sustain it).
-    const BITRATE = { '720': 6_000_000, '1080': 14_000_000, '1440': 24_000_000, '2160': 45_000_000, 'source': 30_000_000 };
+    // Conservative bitrate per tier — low enough to avoid Wi-Fi congestion (the #1 cause of lag).
+    // Less data queued = lower latency and no stutter. Raise only on a strong 5GHz link.
+    const BITRATE = { '720': 3_500_000, '1080': 7_000_000, '1440': 12_000_000, '2160': 20_000_000, 'source': 14_000_000 };
 
     let ws, localStream;
     let audioOn = true; // whether viewers' output devices should play audio
