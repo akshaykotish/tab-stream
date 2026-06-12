@@ -76,8 +76,8 @@
       </label>
       <label class="audio">FPS
         <select id="fps">
-          <option value="30">30</option>
-          <option value="60" selected>60</option>
+          <option value="30" selected>30</option>
+          <option value="60">60</option>
         </select>
       </label>
       <label class="audio">Mode
@@ -208,6 +208,7 @@
         const params = videoSender.getParameters();
         if (!params.encodings || !params.encodings.length) params.encodings = [{}];
         params.encodings[0].maxBitrate = targetBitrate();
+        params.encodings[0].maxFramerate = parseInt(els.fps.value, 10); // hard FPS cap = predictable load
         params.encodings[0].networkPriority = 'high'; // prioritize this media on the wire
         params.encodings[0].priority = 'high';
         // Smooth mode keeps frame rate up (drops resolution if needed); sharp mode does the opposite.
