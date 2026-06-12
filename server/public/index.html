@@ -143,8 +143,8 @@
 
     const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    // Target bitrate (bits/sec) per quality tier — high enough to keep text crisp.
-    const BITRATE = { '720': 5_000_000, '1080': 10_000_000, '1440': 18_000_000, '2160': 35_000_000, 'source': 25_000_000 };
+    // Target bitrate (bits/sec) per quality tier — raised for better quality (WebRTC adapts down if the link can't sustain it).
+    const BITRATE = { '720': 6_000_000, '1080': 14_000_000, '1440': 24_000_000, '2160': 45_000_000, 'source': 30_000_000 };
 
     let ws, localStream;
     let audioOn = true; // whether viewers' output devices should play audio
@@ -255,8 +255,12 @@
         if (err.name !== 'NotAllowedError') alert('Could not start capture: ' + err.message);
         return;
       }
-      els.preview.srcObject = localStream;
-      els.placeholder.style.display = 'none';
+      // Broadcast only — do NOT render the stream locally. This frees the broadcaster's
+      // CPU/GPU so it can encode higher quality and stay smooth for the actual viewers.
+      els.preview.style.display = 'none';
+      els.placeholder.innerHTML = '🔴 <b>LIVE</b> — broadcasting to your devices.<br>' +
+        '<span style="color:#5b6477">Local preview is off so this machine can push the best quality.</span>';
+      els.placeholder.style.display = '';
       els.start.disabled = true; els.stop.disabled = false;
       setStatus('LIVE', true);
 
@@ -306,6 +310,7 @@
       peers.clear();
       // Keep ws open so file mode still works after stopping a live share.
       els.preview.srcObject = null;
+      els.placeholder.innerHTML = 'Click <b>Start sharing</b> and choose a browser tab, window, or your whole screen.';
       els.placeholder.style.display = '';
       els.start.disabled = false; els.stop.disabled = true;
       setStatus('idle');
